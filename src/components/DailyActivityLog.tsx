@@ -1,201 +1,232 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState } from "react";
 import { ActivityRecord } from "../app/page";
+import {
+  calculateWakeTimes,
+  ActivityWithWakeTime,
+} from "../utils/wakeTimeCalculator";
 
 type DailyActivityLogProps = {
   activities: ActivityRecord[];
 };
 
-type GroupedActivities = {
-  [date: string]: ActivityRecord[];
-};
-
 export default function DailyActivityLog({
   activities,
 }: DailyActivityLogProps) {
-  const [expandedDate, setExpandedDate] = useState<string | null>(null);
-  const [expandedActivity, setExpandedActivity] = useState<string | null>(null);
+  const [selectedDate, setSelectedDate] = useState(() => {
+    const today = new Date();
+    return today.toISOString().split("T")[0];
+  });
 
-  // 날짜별로 활동 그룹화 및 각 날짜 내에서 시간순 정렬
-  const groupedActivities = useMemo(() => {
-    const grouped: GroupedActivities = {};
+  // 깨시 계산이 포함된 활동 데이터
+  const activitiesWithWakeTime = calculateWakeTimes(activities);
 
-    // 날짜별로 그룹화
-    activities.forEach((activity) => {
-      if (!grouped[activity.date]) {
-        grouped[activity.date] = [];
+  // 선택된 날짜의 활동들 필터링 및 시간순 정렬
+  const dayActivities = activitiesWithWakeTime
+    .filter((activity) => activity.date === selectedDate)
+    .sort((a, b) => a.startTime.localeCompare(b.startTime));
+
+  // 활동 유형별 아이콘
+  const getActivityIcon = (activity: ActivityWithWakeTime) => {
+    if (activity.type === "밤잠") return "🌙";
+    if (activity.type === "낮잠") return "😴";
+    if (activity.type === "식사") {
+      switch (activity.mealType) {
+        case "모유":
+          return "🤱";
+        case "분유":
+          return "🍼";
+        case "이유식":
+          return "🥄";
+        case "유아식":
+          return "🍽️";
+        default:
+          return "🍼";
       }
-      grouped[activity.date].push(activity);
-    });
-
-    // 각 날짜 그룹 내에서 시간순 정렬
-    Object.keys(grouped).forEach((date) => {
-      grouped[date].sort((a, b) => {
-        // 시작 시간으로 정렬
-        return a.startTime.localeCompare(b.startTime);
-      });
-    });
-
-    return grouped;
-  }, [activities]);
-
-  // 날짜 목록을 최신순으로 정렬
-  const sortedDates = useMemo(() => {
-    return Object.keys(groupedActivities).sort((a, b) => b.localeCompare(a));
-  }, [groupedActivities]);
-
-  // 날짜 토글 함수
-  const toggleDate = (date: string) => {
-    if (expandedDate === date) {
-      setExpandedDate(null);
-    } else {
-      setExpandedDate(date);
     }
+    return "📝";
   };
 
-  // 활동 상세 정보 토글 함수
-  const toggleActivity = (activityId: string) => {
-    if (expandedActivity === activityId) {
-      setExpandedActivity(null);
-    } else {
-      setExpandedActivity(activityId);
+  // 활동 제목 생성
+  const getActivityTitle = (activity: ActivityWithWakeTime) => {
+    if (activity.type === "식사") {
+      return `${activity.mealType}`;
     }
+    return activity.type;
   };
 
-  // 활동 유형에 따른 아이콘 및 색상
-  const getActivityTypeStyle = (type: string) => {
-    switch (type) {
-      case "밤잠":
-        return {
-          icon: "🌙",
-          bgColor: "bg-indigo-100",
-          textColor: "text-indigo-800",
-        };
-      case "낮잠":
-        return {
-          icon: "😴",
-          bgColor: "bg-blue-100",
-          textColor: "text-blue-800",
-        };
-      case "식사":
-        return {
-          icon: "🍽️",
-          bgColor: "bg-pink-100",
-          textColor: "text-pink-800",
-        };
-      default:
-        return {
-          icon: "📝",
-          bgColor: "bg-gray-100",
-          textColor: "text-gray-800",
-        };
-    }
+  // 날짜 이동
+  const changeDate = (direction: "prev" | "next") => {
+    const currentDate = new Date(selectedDate);
+    currentDate.setDate(
+      currentDate.getDate() + (direction === "next" ? 1 : -1)
+    );
+    setSelectedDate(currentDate.toISOString().split("T")[0]);
   };
 
-  // 시간 포맷팅 함수
-  const formatTime = (timeString: string) => {
-    const [hours, minutes] = timeString.split(":");
-    return `${hours}:${minutes}`;
+  // 날짜별 요약 정보
+  const getDaySummary = () => {
+    const sleepActivities = dayActivities.filter(
+      (a) => a.type === "밤잠" || a.type === "낮잠"
+    );
+    const mealActivities = dayActivities.filter((a) => a.type === "식사");
+
+    const totalSleepMinutes = sleepActivities.reduce((total, activity) => {
+      if (activity.duration) {
+        const match = activity.duration.match(/(\d+)시간\s*(\d+)분/);
+        if (match) {
+          return total + parseInt(match[1]) * 60 + parseInt(match[2]);
+        }
+      }
+      return total;
+    }, 0);
+
+    return {
+      totalSleepHours: Math.floor(totalSleepMinutes / 60),
+      totalSleepMinutes: totalSleepMinutes % 60,
+      sleepCount: sleepActivities.length,
+      mealCount: mealActivities.length,
+    };
   };
 
-  if (sortedDates.length === 0) {
-    return <p className="text-gray-500 italic">아직 기록된 활동이 없습니다.</p>;
-  }
+  const summary = getDaySummary();
 
   return (
-    <div className="space-y-4">
-      {sortedDates.map((date) => (
-        <div key={date} className="border rounded-lg overflow-hidden">
-          <div
-            className="flex justify-between items-center p-4 bg-gray-50 cursor-pointer"
-            onClick={() => toggleDate(date)}
-          >
-            <h3 className="text-lg font-medium">{date}</h3>
-            <button className="text-gray-500">
-              {expandedDate === date ? "접기 ▲" : "펼치기 ▼"}
-            </button>
+    <div className="bg-white p-6 rounded-lg shadow-md">
+      {/* 날짜 선택 헤더 */}
+      <div className="flex items-center justify-between mb-6">
+        <button
+          onClick={() => changeDate("prev")}
+          className="px-4 py-2 bg-gray-200 rounded-lg hover:bg-gray-300 transition-colors"
+        >
+          ← 전날
+        </button>
+
+        <div className="text-center">
+          <input
+            type="date"
+            value={selectedDate}
+            onChange={(e) => setSelectedDate(e.target.value)}
+            className="text-lg font-bold text-purple-800 bg-transparent border-none text-center cursor-pointer"
+          />
+          <div className="text-sm text-gray-600">
+            {new Date(selectedDate).toLocaleDateString("ko-KR", {
+              weekday: "long",
+              year: "numeric",
+              month: "long",
+              day: "numeric",
+            })}
           </div>
+        </div>
 
-          {expandedDate === date && (
-            <div className="p-4">
-              <div className="space-y-3">
-                {groupedActivities[date].map((activity) => {
-                  const { icon, bgColor, textColor } = getActivityTypeStyle(
-                    activity.type
-                  );
+        <button
+          onClick={() => changeDate("next")}
+          className="px-4 py-2 bg-gray-200 rounded-lg hover:bg-gray-300 transition-colors"
+        >
+          다음날 →
+        </button>
+      </div>
 
-                  return (
-                    <div
-                      key={activity.id}
-                      className="border rounded-md overflow-hidden"
-                    >
-                      <div
-                        className={`flex items-center p-3 ${bgColor} cursor-pointer`}
-                        onClick={() => toggleActivity(activity.id)}
-                      >
-                        <span className="text-xl mr-2">{icon}</span>
-                        <div className="flex-1">
-                          <div className="flex justify-between">
-                            <span className={`font-medium ${textColor}`}>
-                              {activity.type}
-                            </span>
-                            <span className="text-gray-600 text-sm">
-                              {formatTime(activity.startTime)}
-                              {activity.endTime &&
-                                ` - ${formatTime(activity.endTime)}`}
-                              {activity.duration && ` (${activity.duration})`}
-                            </span>
-                          </div>
+      {/* 하루 요약 */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6 p-4 bg-purple-50 rounded-lg">
+        <div className="text-center">
+          <div className="text-2xl font-bold text-purple-800">
+            {summary.totalSleepHours}h {summary.totalSleepMinutes}m
+          </div>
+          <div className="text-sm text-gray-600">총 수면시간</div>
+        </div>
+        <div className="text-center">
+          <div className="text-2xl font-bold text-purple-800">
+            {summary.sleepCount}
+          </div>
+          <div className="text-sm text-gray-600">수면 횟수</div>
+        </div>
+        <div className="text-center">
+          <div className="text-2xl font-bold text-purple-800">
+            {summary.mealCount}
+          </div>
+          <div className="text-sm text-gray-600">식사 횟수</div>
+        </div>
+        <div className="text-center">
+          <div className="text-2xl font-bold text-purple-800">
+            {dayActivities.length}
+          </div>
+          <div className="text-sm text-gray-600">총 활동</div>
+        </div>
+      </div>
 
-                          {/* 간략 정보 표시 */}
-                          <div className="text-sm text-gray-600 mt-1">
-                            {activity.type === "식사" && activity.mealType && (
-                              <span>
-                                {activity.mealType}
-                                {activity.mealType === "유아식"
-                                  ? ` - ${activity.portionSize}${
-                                      activity.milkAmount
-                                        ? `, 우유 ${activity.milkAmount}`
-                                        : ""
-                                    }`
-                                  : activity.amount
-                                  ? ` - ${activity.amount}`
-                                  : ""}
-                              </span>
-                            )}
-                            {(activity.type === "밤잠" ||
-                              activity.type === "낮잠") && (
-                              <span>
-                                눕힌 시각:{" "}
-                                {activity.layDownTime &&
-                                  formatTime(activity.layDownTime)}
-                                , 입면 시각:{" "}
-                                {activity.fallAsleepTime &&
-                                  formatTime(activity.fallAsleepTime)}
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                      </div>
+      {/* 활동 목록 */}
+      <div className="space-y-4">
+        {dayActivities.length === 0 ? (
+          <div className="text-center py-8 text-gray-500">
+            이 날짜에 기록된 활동이 없습니다.
+          </div>
+        ) : (
+          dayActivities.map((activity) => (
+            <div
+              key={activity.id}
+              className="border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow"
+            >
+              <div className="flex items-start gap-3">
+                <div className="text-2xl">{getActivityIcon(activity)}</div>
 
-                      {/* 상세 정보 표시 */}
-                      {expandedActivity === activity.id && activity.notes && (
-                        <div className="p-3 bg-white border-t">
-                          <h4 className="font-medium mb-1">상세 기록:</h4>
-                          <p className="text-gray-700 whitespace-pre-wrap">
-                            {activity.notes}
-                          </p>
-                        </div>
+                <div className="flex-1">
+                  <div className="flex items-center gap-2 mb-2">
+                    <h3 className="font-semibold text-lg text-gray-800">
+                      {getActivityTitle(activity)}
+                    </h3>
+                    <span className="text-sm text-gray-500">
+                      {activity.startTime}
+                      {activity.endTime && ` - ${activity.endTime}`}
+                      {activity.duration && ` (${activity.duration})`}
+                    </span>
+                  </div>
+
+                  {/* 깨시 정보 표시 */}
+                  {activity.previousWakeTime && (
+                    <div className="mb-2 text-sm text-gray-600 bg-gray-50 px-3 py-1 rounded-full inline-block">
+                      ⏰ 이전 깨시: {activity.previousWakeTime}
+                    </div>
+                  )}
+
+                  {/* 수면 활동 상세 정보 */}
+                  {(activity.type === "밤잠" || activity.type === "낮잠") && (
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-2 text-sm text-gray-600 mb-2">
+                      {activity.layDownTime && (
+                        <div>눕힌 시각: {activity.layDownTime}</div>
+                      )}
+                      {activity.fallAsleepTime && (
+                        <div>입면 시각: {activity.fallAsleepTime}</div>
+                      )}
+                      {activity.endTime && (
+                        <div>기상 시각: {activity.endTime}</div>
                       )}
                     </div>
-                  );
-                })}
+                  )}
+
+                  {/* 식사 활동 상세 정보 */}
+                  {activity.type === "식사" && (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-sm text-gray-600 mb-2">
+                      {activity.amount && <div>양: {activity.amount}</div>}
+                      {activity.duration && (
+                        <div>소요시간: {activity.duration}</div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* 메모 */}
+                  {activity.notes && (
+                    <div className="text-sm text-gray-700 bg-yellow-50 p-2 rounded border-l-4 border-yellow-400">
+                      💭 {activity.notes}
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
-          )}
-        </div>
-      ))}
+          ))
+        )}
+      </div>
     </div>
   );
 }

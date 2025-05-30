@@ -91,6 +91,12 @@ export default function ActivityForm({ onAddActivity }: ActivityFormProps) {
       return;
     }
 
+    // 모유의 경우에만 종료 시간 필수
+    if (type === "식사" && mealType === "모유" && !endTime) {
+      alert("모유 수유의 경우 종료 시각이 필요합니다.");
+      return;
+    }
+
     // 기본 활동 기록 생성
     const newActivity: ActivityRecord = {
       id: Date.now().toString(),
@@ -146,6 +152,7 @@ export default function ActivityForm({ onAddActivity }: ActivityFormProps) {
         newActivity.amount = `${amount}mL`;
       }
 
+      // 종료 시간이 입력된 경우에만 duration 계산
       if (endTime) {
         newActivity.endTime = endTime;
 
@@ -246,13 +253,18 @@ export default function ActivityForm({ onAddActivity }: ActivityFormProps) {
           {!(type === "밤잠" || type === "낮잠") && (
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                {type === "식사" ? "식사 종료 시각" : "종료 시각"}
+                {type === "식사"
+                  ? mealType === "모유"
+                    ? "수유 종료 시각 (필수)"
+                    : "식사 종료 시각 (선택)"
+                  : "종료 시각"}
               </label>
               <input
                 type="time"
                 value={endTime}
                 onChange={(e) => setEndTime(e.target.value)}
                 className="w-full p-2 border border-gray-300 rounded-md"
+                required={type === "식사" && mealType === "모유"}
               />
             </div>
           )}
