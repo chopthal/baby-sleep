@@ -26,81 +26,47 @@ export function calculateWakeTimes(
   // 날짜순으로 정렬된 키들
   const sortedDates = Object.keys(activitiesByDate).sort();
 
-  let previousSleepEnd: { time: string; date: string } | null = null;
+  // 모든 수면 활동을 시간순으로 정렬 (날짜와 시간 모두 고려)
+  const allSleepActivities = sleepActivities.sort((a, b) => {
+    // 날짜 먼저 비교
+    const dateCompare = a.date.localeCompare(b.date);
+    if (dateCompare !== 0) return dateCompare;
 
-  for (const date of sortedDates) {
-    const dayActivities = activitiesByDate[date];
+    // 같은 날짜면 시작 시간으로 비교
+    const getStartTime = (activity: ActivityRecord) => {
+      return (
+        activity.fallAsleepTime ||
+        activity.layDownTime ||
+        activity.startTime
+      );
+    };
 
-    // 하루 내 수면 활동을 시간순으로 정렬
-    const sortedDayActivities = dayActivities.sort((a, b) => {
-      const getStartTime = (activity: ActivityRecord) => {
-        if (activity.type === "밤잠") {
-          return (
-            activity.layDownTime ||
-            activity.fallAsleepTime ||
-            activity.startTime
-          );
-        }
-        return (
-          activity.layDownTime || activity.fallAsleepTime || activity.startTime
-        );
-      };
+    const timeA = getStartTime(a);
+    const timeB = getStartTime(b);
 
-      const timeA = getStartTime(a);
-      const timeB = getStartTime(b);
+    return timeA.localeCompare(timeB);
+  });
 
-      return timeA.localeCompare(timeB);
-    });
+  // 각 수면 활동에 대해 깨시 계산
+  for (let i = 1; i < allSleepActivities.length; i++) {
+    const currentSleep = allSleepActivities[i];
+    const previousSleep = allSleepActivities[i - 1];
 
-    for (let i = 0; i < sortedDayActivities.length; i++) {
-      const currentActivity = sortedDayActivities[i];
-      const resultIndex = result.findIndex((r) => r.id === currentActivity.id);
+    // 이전 수면의 기상시각이 있고, 현재 수면의 입면시각이 있는 경우만 계산
+    if (previousSleep.endTime && currentSleep.fallAsleepTime) {
+      const wakeTime = calculateTimeDifference(
+        previousSleep.endTime,
+        currentSleep.fallAsleepTime,
+        previousSleep.date,
+        currentSleep.date
+      );
 
-      if (resultIndex === -1) continue;
-
-      let wakeTime: string | undefined;
-
-      if (i === 0 && previousSleepEnd) {
-        // 하루의 첫 번째 수면이지만 전날 수면이 있는 경우
-        const currentStart =
-          currentActivity.layDownTime ||
-          currentActivity.fallAsleepTime ||
-          currentActivity.startTime;
-        wakeTime = calculateTimeDifference(
-          previousSleepEnd.time,
-          currentStart,
-          previousSleepEnd.date,
-          date
-        );
-      } else if (i > 0) {
-        // 하루 내에서 이전 수면이 있는 경우
-        const previousActivity = sortedDayActivities[i - 1];
-        const previousEnd = previousActivity.endTime;
-        const currentStart =
-          currentActivity.layDownTime ||
-          currentActivity.fallAsleepTime ||
-          currentActivity.startTime;
-
-        if (previousEnd) {
-          wakeTime = calculateTimeDifference(
-            previousEnd,
-            currentStart,
-            date,
-            date
-          );
-        }
-      }
-
-      result[resultIndex] = {
-        ...result[resultIndex],
-        previousWakeTime: wakeTime,
-      };
-
-      // 다음 계산을 위해 현재 수면의 종료 시간 저장
-      if (currentActivity.endTime) {
-        previousSleepEnd = {
-          time: currentActivity.endTime,
-          date: date,
+      // result 배열에서 해당 활동 찾아서 깨시 정보 추가
+      const resultIndex = result.findIndex((r) => r.id === currentSleep.id);
+      if (resultIndex !== -1) {
+        result[resultIndex] = {
+          ...result[resultIndex],
+          previousWakeTime: wakeTime,
         };
       }
     }
@@ -110,24 +76,30 @@ export function calculateWakeTimes(
 }
 
 function calculateTimeDifference(
-  startTime: string,
-  endTime: string,
-  startDate: string,
-  endDate: string
+  wakeUpTime: string,      // 이전 수면의 기상시각
+  fallAsleepTime: string,  // 현재 수면의 입면시각
+  wakeUpDate: string,      // 이전 수면의 날짜
+  fallAsleepDate: string   // 현재 수면의 날짜
 ): string {
-  const startDateTime = new Date(`${startDate}T${startTime}`);
-  let endDateTime = new Date(`${endDate}T${endTime}`);
+  const wakeUpDateTime = new Date(`${wakeUpDate}T${wakeUpTime}`);
+  let fallAsleepDateTime = new Date(`${fallAsleepDate}T${fallAsleepTime}`);
 
-  // 밤잠이 다음날로 넘어가는 경우 처리
-  if (endDateTime <= startDateTime) {
-    endDateTime.setDate(endDateTime.getDate() + 1);
+  // 날짜가 다른 경우 처리 (예: 전날 밤잠 기상 → 다음날 낮잠 입면)
+  // 또는 같은 날이지만 시간이 역순인 경우 (밤잠이 다음날로 넘어가는 경우)
+  if (fallAsleepDateTime <= wakeUpDateTime) {
+    fallAsleepDateTime.setDate(fallAsleepDateTime.getDate() + 1);
   }
 
-  const diffMs = endDateTime.getTime() - startDateTime.getTime();
+  const diffMs = fallAsleepDateTime.getTime() - wakeUpDateTime.getTime();
   const diffMinutes = Math.floor(diffMs / (1000 * 60));
 
   if (diffMinutes < 0) {
     return "시간 계산 오류";
+  }
+
+  // 24시간을 초과하는 경우 (비정상적인 경우)
+  if (diffMinutes > 24 * 60) {
+    return "24시간 초과";
   }
 
   const hours = Math.floor(diffMinutes / 60);

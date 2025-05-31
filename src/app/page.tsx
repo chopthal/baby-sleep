@@ -245,6 +245,16 @@ export default function Home() {
     setActivities([...activities, activity]);
   };
 
+  const updateActivity = (updatedActivity: ActivityRecord) => {
+    setActivities(activities.map(activity => 
+      activity.id === updatedActivity.id ? updatedActivity : activity
+    ));
+  };
+
+  const deleteActivity = (activityId: string) => {
+    setActivities(activities.filter(activity => activity.id !== activityId));
+  };
+
   return (
     <main className="max-w-6xl mx-auto p-4">
       <div className="mb-8 p-6 bg-purple-50 rounded-lg">
@@ -314,7 +324,11 @@ export default function Home() {
             <h2 className="text-xl font-bold text-purple-800 mb-4">
               일별 활동 기록
             </h2>
-            <DailyActivityLog activities={activities} />
+            <DailyActivityLog 
+              activities={activities} 
+              onUpdateActivity={updateActivity}
+              onDeleteActivity={deleteActivity}
+            />
           </div>
         )}
 
